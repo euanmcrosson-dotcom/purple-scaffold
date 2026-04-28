@@ -1,0 +1,7 @@
+{
+  "litellm": {
+    "LiteLLMGenerator": {
+      "suppressed_params": ["temperature", "top_p"]
+    }
+  }
+}
