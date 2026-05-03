@@ -9,6 +9,7 @@ import pytest
 from purple.guards import (
     GuardConfig,
     GuardContext,
+    guard_attack_attempt_count,
     guard_attack_executing_to_escalate,
     guard_inconclusive_to_retry,
     guard_pr_open_to_deployed,
@@ -148,6 +149,50 @@ def test_retest_at_budget_escalates():
     assert "not converging" in result.reason
 
 
+# ─── ATTACK_EXECUTING absolute attempt cap ─────────────────────────
+
+
+def test_attack_attempt_count_under_cap_allowed():
+    cfg = GuardConfig(max_attack_attempts_per_run=10)
+    ctx = GuardContext(attack_attempts=5)
+    assert guard_attack_attempt_count(ctx, cfg).allowed
+
+
+def test_attack_attempt_count_at_cap_escalates():
+    """The fix from purple-scaffold Angle 3: same-cause flapping
+    eventually escalates regardless of cause variety. Even with one
+    distinct kind (which the cause-dedup guard would never escalate
+    on), the absolute cap fires."""
+    cfg = GuardConfig(max_attack_attempts_per_run=10)
+    ctx = GuardContext(
+        attack_attempts=10,
+        consecutive_exec_error_kinds=["network_unreachable"],  # only ONE kind
+    )
+    result = guard_attack_attempt_count(ctx, cfg)
+    assert not result.allowed
+    assert result.outcome == "deny_escalate"
+    assert "10 attack attempts" in result.reason
+    assert "same-cause flapping" in result.reason
+
+
+def test_attack_attempt_count_independent_of_cause_variety():
+    """The two attack-side guards compose. The cause-dedup guard
+    catches `the system is broken in 3 different ways` (could happen
+    in 3 attempts). The attempt-count guard catches `the system is
+    broken in 1 way that won't resolve.`"""
+    cfg = GuardConfig(max_attack_attempts_per_run=10)
+    # Many attempts, only one cause: cause-dedup guard would not
+    # escalate, but attempt-count guard MUST.
+    ctx = GuardContext(
+        attack_attempts=10,
+        consecutive_exec_error_kinds=["only_one_cause_repeated"],
+    )
+    cause_dedup = guard_attack_executing_to_escalate(ctx, cfg)
+    attempt_cap = guard_attack_attempt_count(ctx, cfg)
+    assert cause_dedup.allowed  # cause-dedup says fine, only 1 distinct kind
+    assert not attempt_cap.allowed  # attempt-cap catches it
+
+
 # ─── Default config sanity ─────────────────────────────────────────
 
 
@@ -158,3 +203,4 @@ def test_default_guard_config_thresholds():
     assert cfg.max_inconclusive_retries == 1
     assert cfg.auto_merge_fpr_threshold == 0.01
     assert cfg.max_retest_cycles == 3
+    assert cfg.max_attack_attempts_per_run == 10

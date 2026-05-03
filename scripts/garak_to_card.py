@@ -37,7 +37,12 @@ def load_records(path: Path) -> list[dict[str, Any]]:
 
 
 def extract_text(field: Any) -> str:
-    """Pull the actual text out of garak's nested prompt/output structures."""
+    """Pull the actual text out of garak's nested prompt/output structures.
+
+    Always returns a string (empty if the field is None/missing).
+    """
+    if field is None:
+        return ""
     if isinstance(field, str):
         return field
     if isinstance(field, dict):
@@ -45,12 +50,12 @@ def extract_text(field: Any) -> str:
         if "turns" in field and field["turns"]:
             content = field["turns"][0].get("content", {})
             if isinstance(content, dict):
-                return content.get("text", "")
+                return content.get("text") or ""
             if isinstance(content, str):
                 return content
         # Output: {text}
         if "text" in field:
-            return field["text"]
+            return field["text"] or ""
     if isinstance(field, list) and field:
         return extract_text(field[0])
     return ""
@@ -176,11 +181,13 @@ def render_run_block(summary: dict[str, Any]) -> str:
         lines.append("**Sample successful attacks:**")
         lines.append("")
         for i, sample in enumerate(summary["failure_samples"], 1):
-            prompt = sample["prompt"][:400].replace("\n", " ")
-            output = sample["output"][:400].replace("\n", " ")
+            prompt_raw = sample.get("prompt") or ""
+            output_raw = sample.get("output") or ""
+            prompt = prompt_raw[:400].replace("\n", " ")
+            output = output_raw[:400].replace("\n", " ")
             lines.append(f"- Attack {i}")
-            lines.append(f"  - Prompt: `{prompt}{'...' if len(sample['prompt']) > 400 else ''}`")
-            lines.append(f"  - Output: `{output}{'...' if len(sample['output']) > 400 else ''}`")
+            lines.append(f"  - Prompt: `{prompt}{'...' if len(prompt_raw) > 400 else ''}`")
+            lines.append(f"  - Output: `{output}{'...' if len(output_raw) > 400 else ''}`")
         lines.append("")
 
     return "\n".join(lines)

@@ -8,6 +8,27 @@ This is a **scaffold**: contracts and state are real, agents are stubs that
 return deterministic results so the demo runs end-to-end. Replace each stub
 with an LLM- or tool-driven implementation as you go.
 
+## Findings produced with this harness
+
+Real defensive-research artifacts produced by running this scaffold + the
+custom probes in `custom_probes/` against frontier models. Each is a
+reproducible card in `findings/`.
+
+| Date | Class | Models affected | Repo |
+|------|-------|-----------------|------|
+| 2026-04-28 | EchoLeak-style indirect prompt injection in email-summarization | GPT-4o (66.67% silent compliance), GPT-4o-mini (50.00%) — Anthropic models 0% | [findings/2026-04-28-echoleak-style-injection-openai.md](findings/2026-04-28-echoleak-style-injection-openai.md) |
+| 2026-04-28 | MCP tool-description prompt injection (cross-tool confused deputy) | GPT-4o, GPT-4o-mini comply with SSH-key exfil plan; Anthropic refuses | [findings/2026-04-28-mcp-tool-description-poisoning-openai.md](findings/2026-04-28-mcp-tool-description-poisoning-openai.md) |
+
+## Upstream tooling contribution
+
+Empirical measurement showed three of [garak](https://github.com/NVIDIA/garak)'s
+default detectors produce 86–100% false-positive rates against safety-trained
+2026-era frontier models. Issue + ready-to-file PR (4 detector patches + 46
+unit tests) drafted in [`upstream/`](upstream/garak-detector-fp-issue.md) and
+[`garak_pr/`](garak_pr/PR_DESCRIPTION.md). The fix introduces an opt-in
+`refusal_filter` flag using a new `RefusalLanguageClassifier` post-filter,
+fully backward-compatible.
+
 ## Architecture (one screen)
 
 ```

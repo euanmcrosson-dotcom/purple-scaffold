@@ -57,6 +57,14 @@ class GuardContext:
     # current technique without reaching PASS.
     retest_cycles_attempted: int = 0
 
+    # Total ATTACK_EXECUTING entries this technique loop, regardless of
+    # success/failure. Bounds same-cause flapping: a real-world Attacker
+    # stuck on one persistent cause (DNS down, target offline, wrong
+    # creds) doesn't generate novelty for `consecutive_exec_error_kinds`
+    # to count, so the cause-dedup guard never escalates. This counter
+    # is the absolute backstop.
+    attack_attempts: int = 0
+
 
 # ─── Guard outputs ─────────────────────────────────────────────────
 
@@ -85,6 +93,12 @@ class GuardConfig:
     max_inconclusive_retries: int = 1
     auto_merge_fpr_threshold: float = 0.01
     max_retest_cycles: int = 3
+    # Absolute backstop on ATTACK_EXECUTING attempts per technique
+    # loop. Catches same-cause flapping that the cause-dedup guard
+    # cannot — a stuck-on-one-cause Attacker (network down, target
+    # offline) would otherwise loop forever because the distinct-kinds
+    # count stays at 1.
+    max_attack_attempts_per_run: int = 10
 
 
 # ─── Individual guards ─────────────────────────────────────────────
@@ -188,6 +202,44 @@ def guard_pr_open_to_deployed(
             f"{ctx.last_fpr:.4f} < {cfg.auto_merge_fpr_threshold:.4f}, "
             "policy permits)"
         ),
+    )
+
+
+def guard_attack_attempt_count(
+    ctx: GuardContext, cfg: GuardConfig
+) -> GuardResult:
+    """Absolute backstop on ATTACK_EXECUTING attempts per technique loop.
+
+    Surfaced by purple-scaffold Angle 3 (same-cause flapping): the
+    cause-dedup guard `guard_attack_executing_to_escalate` is bounded
+    by *novelty* of error kinds, not by attempt count. A real-world
+    Attacker stuck on a single persistent cause (DNS unreachable,
+    target VM offline, expired credentials) would generate the same
+    error kind on every attempt, the dedup'd kinds list stays at
+    length 1, and the orchestrator loops forever.
+
+    This guard is the unconditional cap. It fires regardless of
+    cause variety. The two guards compose: the cause-dedup guard
+    catches "the system is genuinely broken in 3 different ways"
+    fast (could happen in 3 attempts); this guard catches "the
+    system is genuinely broken in 1 way that won't resolve."
+
+    Default: 10 attempts. Operator can tune via
+    `GuardConfig.max_attack_attempts_per_run`.
+    """
+    if ctx.attack_attempts >= cfg.max_attack_attempts_per_run:
+        return GuardResult(
+            outcome="deny_escalate",
+            reason=(
+                f"{ctx.attack_attempts} attack attempts this technique "
+                f"(max {cfg.max_attack_attempts_per_run}); "
+                "cause-dedup guard insufficient against same-cause "
+                "flapping — escalating"
+            ),
+        )
+    return GuardResult(
+        outcome="allow",
+        reason=f"{ctx.attack_attempts}/{cfg.max_attack_attempts_per_run} attempts used",
     )
 
 

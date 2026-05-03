@@ -28,6 +28,7 @@ from .guards import (
     GuardConfig,
     GuardContext,
     GuardResult,
+    guard_attack_attempt_count,
     guard_attack_executing_to_escalate,
     guard_inconclusive_to_retry,
     guard_pr_open_to_deployed,
@@ -78,6 +79,7 @@ class Orchestrator:
         self._exec_error_kinds: list[str] = []
         self._inconclusive_retries_used: int = 0
         self._retest_cycles_attempted: int = 0
+        self._attack_attempts: int = 0
         self._human_gate_reason: str | None = None
 
     # ─── Public entry point ────────────────────────────────────────
@@ -215,12 +217,27 @@ class Orchestrator:
         self._exec_error_kinds = []
         self._inconclusive_retries_used = 0
         self._retest_cycles_attempted = 0
+        self._attack_attempts = 0
         self._human_gate_reason = None
 
         self._send("scout", "orchestrator", plan)
         self._goto(State.ATTACK_PLANNED)
 
     def _execute_attack(self) -> None:
+        # Guard #1 (absolute attempt cap): check BEFORE invoking the
+        # attacker. The cause-dedup guard below catches *novelty* of
+        # error kinds; this guard catches *repetition* — a stuck-on-
+        # one-cause Attacker (DNS down, target offline, expired creds)
+        # would otherwise loop the ATTACK_EXECUTING self-edge forever.
+        # Surfaced by purple-scaffold Angle 3.
+        self._attack_attempts += 1
+        attempt_ctx = GuardContext(attack_attempts=self._attack_attempts)
+        attempt_guard = guard_attack_attempt_count(attempt_ctx, self.guard_config)
+        self._record_guard("attack_attempt_count", attempt_guard)
+        if not attempt_guard.allowed:
+            self._goto(State.ESCALATED)
+            return
+
         plan = self._current_plan
         atomic_ref = plan.atomic_ref or c.AtomicReference(
             source="atomic-red-team",
