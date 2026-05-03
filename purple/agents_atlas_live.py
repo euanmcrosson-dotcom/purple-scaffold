@@ -8,6 +8,13 @@ whether exfiltration actually succeeded — not based on a stub.
 This is the smallest realistic end-to-end loop: one process attacking
 another, real network round-trip, real verdict from real evidence.
 
+The Engineer here is no longer a stub — it synthesizes a real
+`GeneratedPolicy` from the gap + indicators, runs a deterministic
+backtest against a fixture corpus to measure FPR / TPR, applies the
+fix to the live target, and returns a `DetectionPatch` whose
+`rule_diff` is the synthesized YAML and whose `false_positive_rate` is
+measured rather than asserted.
+
 Plug in a real LLM target by replacing the `_post_chat()` and
 `_set_defenses()` URLs / payloads with whatever your target speaks.
 """
@@ -25,6 +32,9 @@ from pydantic import BaseModel
 from . import contracts as c
 from .agents import Agent
 from .envelope import AgentName
+from .policy import GeneratedPolicy
+from .policy_backtest import BacktestCase, BacktestMetrics, default_corpus, run_backtest
+from .policy_synthesis import SynthesisInput, synthesize
 
 
 def _now() -> str:
@@ -219,38 +229,169 @@ class LiveATLASAnalystAgent(Agent):
 
 
 class LiveATLASEngineerAgent(Agent):
-    """Engineer that *actually applies* the fix by toggling the target's
-    defenses, then opens a (fake) PR."""
+    """Engineer that synthesizes a tool-call policy from the analysis
+    gap, backtests it against a fixture corpus to measure FPR / TPR,
+    applies the fix to the live target, and returns a real
+    `DetectionPatch`.
+
+    The synthesis is deterministic + pattern-based (see
+    `policy_synthesis.py`). The backtest is in-process against a
+    deterministic corpus (see `policy_backtest.py`). Neither uses an
+    LLM — both are designed to be auditable from the audit log alone.
+
+    For the lab target, the synthesized contact-allowlist policy
+    matches the lab's hardcoded `tool_policy` flag; applying the fix
+    is therefore `_set_defenses(tool_policy=True)`. For a target that
+    accepts arbitrary policies, swap the application step for a POST
+    of `policy.to_yaml()` to the target's policy endpoint.
+    """
 
     name: AgentName = "engineer"
 
-    def __init__(self, target: TargetConfig | None = None) -> None:
+    def __init__(
+        self,
+        target: TargetConfig | None = None,
+        corpus: list[BacktestCase] | None = None,
+    ) -> None:
         self.target = target or TargetConfig()
+        # Deterministic corpus is the default — operators can pass a
+        # production-traffic corpus for real backtests.
+        self._corpus = corpus or default_corpus()
 
     def handle(self, payload: BaseModel) -> c.DetectionPatch:
         assert isinstance(payload, c.DetectionTask)
-        # Apply the fix to the live target.
-        _set_defenses(
-            self.target,
-            input_classifier=False,
-            output_classifier=False,
-            tool_policy=True,
+
+        # 1. Synthesize.
+        policy = synthesize(
+            SynthesisInput(
+                gap=payload.gap,
+                indicators=_indicators_from_gap(payload),
+                technique_id=payload.technique_id,
+            )
         )
+
+        # 2. Backtest.
+        metrics = run_backtest(policy, self._corpus)
+
+        # 3. Apply to the live target. The synthesized contact-allowlist
+        # rule maps to the lab's existing tool_policy flag.
+        applied = False
+        try:
+            _set_defenses(
+                self.target,
+                input_classifier=False,
+                output_classifier=False,
+                tool_policy=True,
+            )
+            applied = True
+        except urllib.error.URLError:
+            # Application failed — return the patch as pr_opened (not
+            # rule_updated). The orchestrator's auto-merge gate already
+            # depends on FPR + matches-sample, so this signals "ready
+            # to deploy but not yet deployed."
+            pass
+
+        return _patch_from_synthesis(
+            policy=policy,
+            metrics=metrics,
+            applied=applied,
+            technique_id=payload.technique_id,
+        )
+
+
+# ─── Engineer helpers ──────────────────────────────────────────────
+
+
+def _indicators_from_gap(task: c.DetectionTask) -> list[str]:
+    """The DetectionTask doesn't carry the Attacker's raw indicators
+    directly — but the gap kind + telemetry samples + the ATLAS
+    technique class give the synthesizer enough to pattern-match.
+
+    For the lab's T-1002 case the relevant signal is
+    'tool:email.send to external recipient' — derivable from the
+    GapDescription kind + detail text. We extract via simple keyword
+    scan; if a downstream caller has richer indicators they should
+    pass them through DetectionTask in a future contract revision."""
+    indicators: list[str] = []
+    detail = (task.gap.detail or "").lower()
+    if "email.send" in detail or "send_email" in detail:
+        indicators.append("tool:email.send")
+    if "attacker@" in detail:
+        # Capture the recipient verbatim — synthesizer uses it for the
+        # rule's reason text.
+        # Simple split-and-take; good enough for lab, replace with a
+        # real indicator stream when wiring a production target.
+        for token in detail.replace(",", " ").replace(".", " ").split():
+            if token.startswith("attacker@") or "@evil" in token:
+                indicators.append(f"argument:to={token}")
+                break
+    if "ssh" in detail or "id_rsa" in detail or ".aws" in detail:
+        indicators.append("tool:read_file")
+        indicators.append("argument:path=sensitive")
+    return indicators
+
+
+def _patch_from_synthesis(
+    *,
+    policy: GeneratedPolicy,
+    metrics: BacktestMetrics,
+    applied: bool,
+    technique_id: str,
+) -> c.DetectionPatch:
+    if not policy.rules:
+        # Synthesizer didn't recognize the gap — be honest, don't
+        # fabricate a rule.
         return c.DetectionPatch(
-            status="rule_updated",
-            pr_url="https://github.com/example/agent-policies/pull/17",
-            rule_diff=(
-                "+ tool_policy:\n"
-                "+   deny: email.send when arguments.to NOT IN user.contacts\n"
-            ),
+            status="blocked",
+            pr_url=None,
+            rule_diff=None,
             test_results=c.DetectionTestResults(
-                matches_attack_sample=True,
-                false_positive_rate=0.0,  # This stub target has no FPs
-                backtest_corpus_size=1,
+                matches_attack_sample=False,
+                false_positive_rate=0.0,
+                backtest_corpus_size=metrics.corpus_size,
             ),
-            auto_merge_eligible=True,
+            auto_merge_eligible=False,
             reasoning=(
-                "Tool-policy enabled on the live target. Re-test should "
-                "produce 'exfil:blocked_by_policy' indicator."
+                "Synthesizer did not match the gap to any known abuse "
+                "pattern. No policy generated. Escalate for human review."
             ),
         )
+
+    diff = "--- /dev/null\n+++ tool_policy.yaml\n" + "".join(
+        f"+{line}\n" for line in policy.to_yaml().splitlines()
+    )
+    fpr = metrics.false_positive_rate
+    auto_merge = applied and metrics.matches_attack_sample and fpr < 0.01
+
+    reasoning_lines = [
+        f"Synthesized {len(policy.rules)} rule(s) from gap pattern.",
+        (
+            f"Backtest: corpus={metrics.corpus_size} "
+            f"TP={metrics.tp} FP={metrics.fp} TN={metrics.tn} FN={metrics.fn} "
+            f"FPR={fpr:.4f} TPR={metrics.true_positive_rate:.4f}."
+        ),
+        ("Applied to live target." if applied else "Applied: NO (target unreachable)."),
+    ]
+    if metrics.failures:
+        sample = metrics.failures[0]
+        reasoning_lines.append(
+            f"Sample failure: {sample.case_id} expected={sample.expected} "
+            f"actual={sample.actual} ({sample.note})."
+        )
+    return c.DetectionPatch(
+        status="rule_updated" if applied else "pr_opened",
+        pr_url=f"https://github.com/example/agent-policies/pull/{_pr_id(technique_id)}",
+        rule_diff=diff,
+        test_results=c.DetectionTestResults(
+            matches_attack_sample=metrics.matches_attack_sample,
+            false_positive_rate=fpr,
+            backtest_corpus_size=metrics.corpus_size,
+        ),
+        auto_merge_eligible=auto_merge,
+        reasoning=" ".join(reasoning_lines),
+    )
+
+
+def _pr_id(technique_id: str) -> int:
+    """Stable fake PR number per technique so audit logs are diffable."""
+    return abs(hash(technique_id)) % 1000 + 1
