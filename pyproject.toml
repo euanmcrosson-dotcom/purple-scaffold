@@ -27,4 +27,7 @@ product = [
 ]
 
 [tool.setuptools]
-packages = ["purple"]
+packages = ["purple", "mcp_guard"]
+
+[project.scripts]
+mcp-guard = "mcp_guard.cli:main"

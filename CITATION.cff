@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "purple-scaffold: indirect-injection probes for MCP-using agents"
+message: "If you use this work, please cite as below."
+type: software
+authors:
+  - given-names: Euan
+    family-names: Crosson
+    email: euanmcrosson@gmail.com
+repository-code: "https://github.com/euanmcrosson-dotcom/purple-scaffold"
+url: "https://github.com/euanmcrosson-dotcom/purple-scaffold"
+abstract: >-
+  An indirect-prompt-injection probe harness for MCP-using AI
+  agents. Tests filesystem, HTTP-fetch, git, and SQLite MCP
+  servers against three disguise variants under a real agent
+  loop with a tool-use-aware verdict. Includes 5 deployed-
+  product wrappers (Cline, Continue.dev, Cursor, Claude Desktop,
+  and a generic baseline), a defensive companion library
+  (`mcp-guard`) that synthesises deterministic policies from
+  observed gaps, and a nightly leaderboard.
+keywords:
+  - prompt-injection
+  - llm-security
+  - red-team
+  - purple-team
+  - mcp
+  - atlas
+  - ai-security
+license: MIT
+version: 0.2.0
+date-released: "2026-05-04"

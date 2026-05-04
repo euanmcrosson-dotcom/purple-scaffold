@@ -53,7 +53,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,product]"
-          pip install mcp-server-fetch mcp-server-git
+          pip install mcp-server-fetch mcp-server-git mcp-server-sqlite
           npm install -g @modelcontextprotocol/server-filesystem
 
       - name: Verify API key is present (skip silently if not)
@@ -116,13 +116,23 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p runs/git
-          # Set git author config for the fixture builder.
           git config --global user.email "panel@example.com"
           git config --global user.name "panel"
           python -m examples.demo_mcp_git_target \
             --models "anthropic/claude-haiku-4-5-20251001" \
             --scenarios all --max-turns 6 \
             --out "runs/git/nightly-$(date -u +%Y-%m-%d).jsonl"
+
+      - name: Run sqlite probe (with poisoned-DB fixtures)
+        if: steps.keys.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs/sqlite
+          python -m examples.demo_mcp_sqlite_target \
+            --models "anthropic/claude-haiku-4-5-20251001" \
+            --scenarios all --max-turns 6 \
+            --out "runs/sqlite/nightly-$(date -u +%Y-%m-%d).jsonl"
 
       - name: Generate LEADERBOARD.md
         if: steps.keys.outputs.skip != 'true'
@@ -138,7 +148,8 @@ jobs:
             "runs/headless/nightly-${DATE}.jsonl" \
             "runs/products/nightly-${DATE}.jsonl" \
             "runs/fetch/nightly-${DATE}.jsonl" \
-            "runs/git/nightly-${DATE}.jsonl"; do
+            "runs/git/nightly-${DATE}.jsonl" \
+            "runs/sqlite/nightly-${DATE}.jsonl"; do
             if [ -f "$f" ]; then cat "$f" >> "$ARCHIVE"; fi
           done
 
@@ -165,4 +176,5 @@ jobs:
             runs/products/nightly-*.jsonl
             runs/fetch/nightly-*.jsonl
             runs/git/nightly-*.jsonl
+            runs/sqlite/nightly-*.jsonl
           retention-days: 30

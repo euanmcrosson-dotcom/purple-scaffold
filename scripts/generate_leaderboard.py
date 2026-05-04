@@ -181,13 +181,16 @@ def main() -> None:
     prod_records, prod_paths = _load_all(("runs/products/*.jsonl",))
     fetch_records, fetch_paths = _load_all(("runs/fetch/*.jsonl",))
     git_records, git_paths = _load_all(("runs/git/*.jsonl",))
+    sqlite_records, sqlite_paths = _load_all(("runs/sqlite/*.jsonl",))
 
     fs_path = fs_paths[-1] if fs_paths else None
     prod_path = prod_paths[-1] if prod_paths else None
     fetch_path = fetch_paths[-1] if fetch_paths else None
     git_path = git_paths[-1] if git_paths else None
+    sqlite_path = sqlite_paths[-1] if sqlite_paths else None
 
-    fail, total = _aggregate(fs_records, prod_records, fetch_records, git_records)
+    fail, total = _aggregate(fs_records, prod_records, fetch_records,
+                             git_records, sqlite_records)
     last_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     parts: list[str] = []
@@ -225,6 +228,11 @@ def main() -> None:
     parts.append("")
     parts.append(_section_git(git_records))
     parts.append("")
+    parts.append("## SQLite agent-loop probe")
+    parts.append(f"_(latest: `{sqlite_path.name if sqlite_path else 'no data'}`)_")
+    parts.append("")
+    parts.append(_section_per_model(sqlite_records, "sqlite_session", "Attack tool_uses"))
+    parts.append("")
     parts.append("---")
     parts.append("")
     parts.append("## How this is generated")
@@ -254,6 +262,7 @@ def main() -> None:
     print(f"  products:   {len(prod_records)} records")
     print(f"  fetch:      {len(fetch_records)} records")
     print(f"  git:        {len(git_records)} records")
+    print(f"  sqlite:     {len(sqlite_records)} records")
     print(f"  cumulative: {fail}/{total} FAIL")
 
 
