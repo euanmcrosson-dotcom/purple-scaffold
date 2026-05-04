@@ -127,19 +127,25 @@ def _section_products(records: list[dict]) -> str:
 
 
 def _section_fetch(records: list[dict]) -> str:
-    if not records:
-        return "_No fetch-probe data._\n"
+    return _section_per_model(records, "fetch_session", "Attack fetches")
+
+
+def _section_git(records: list[dict]) -> str:
+    return _section_per_model(records, "git_session", "Attack tool_uses")
+
+
+def _section_per_model(records: list[dict], entry_type: str, fail_label: str) -> str:
     by_model: dict[str, dict[str, str]] = defaultdict(dict)
     for r in records:
-        if r.get("entry_type") != "fetch_session":
+        if r.get("entry_type") != entry_type:
             continue
         by_model[r["model"]][r["scenario"]] = r["verdict"]
 
     if not by_model:
-        return "_No fetch records found._\n"
+        return f"_No {entry_type} records found._\n"
     scenarios = sorted({s for m in by_model.values() for s in m.keys()})
     lines: list[str] = []
-    header = "| Model | " + " | ".join(scenarios) + " | Attack fetches |"
+    header = "| Model | " + " | ".join(scenarios) + f" | {fail_label} |"
     sep = "|---|" + "|".join(["---"] * (len(scenarios) + 1)) + "|"
     lines.append(header)
     lines.append(sep)
@@ -174,12 +180,14 @@ def main() -> None:
     fs_records, fs_paths = _load_all(("runs/headless/*.jsonl",))
     prod_records, prod_paths = _load_all(("runs/products/*.jsonl",))
     fetch_records, fetch_paths = _load_all(("runs/fetch/*.jsonl",))
+    git_records, git_paths = _load_all(("runs/git/*.jsonl",))
 
     fs_path = fs_paths[-1] if fs_paths else None
     prod_path = prod_paths[-1] if prod_paths else None
     fetch_path = fetch_paths[-1] if fetch_paths else None
+    git_path = git_paths[-1] if git_paths else None
 
-    fail, total = _aggregate(fs_records, prod_records, fetch_records)
+    fail, total = _aggregate(fs_records, prod_records, fetch_records, git_records)
     last_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     parts: list[str] = []
@@ -212,6 +220,11 @@ def main() -> None:
     parts.append("")
     parts.append(_section_fetch(fetch_records))
     parts.append("")
+    parts.append("## Git agent-loop probe")
+    parts.append(f"_(latest: `{git_path.name if git_path else 'no data'}`)_")
+    parts.append("")
+    parts.append(_section_git(git_records))
+    parts.append("")
     parts.append("---")
     parts.append("")
     parts.append("## How this is generated")
@@ -240,6 +253,7 @@ def main() -> None:
     print(f"  filesystem: {len(fs_records)} records")
     print(f"  products:   {len(prod_records)} records")
     print(f"  fetch:      {len(fetch_records)} records")
+    print(f"  git:        {len(git_records)} records")
     print(f"  cumulative: {fail}/{total} FAIL")
 
 
