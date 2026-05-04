@@ -1,5 +1,21 @@
 # Disclosure to xAI: Grok 4.1 Fast Reasoning silently complies with filesystem-MCP indirect prompt injection — reasoning trace explicitly notes "without disclosing… to the user"
 
+> **READ FIRST — methodology caveat (2026-05-04):**
+> The 75% compliance number in this submission is from a *prompt-only*
+> probe. We have since built a real MCP-server-backed agent-loop
+> probe and re-tested Grok 4.1 Fast Reasoning on the same scenarios.
+> In the agent-loop probe — where the same poisoned content is
+> delivered as a `tool_result` from a real `read_text_file` call,
+> the way it actually arrives in production deployments — Grok 4.1
+> emitted **0/3 attack tool_uses**. The "without disclosing… to the
+> user" reasoning shape we cite below is real and reproducible in
+> the prompt-only probe; we have not observed it in the agent-loop
+> probe with the current scenarios. Treat the prompt-only result as
+> a model-disposition signal useful for safety-evaluation suites;
+> the agent-loop result is the more conservative signal for
+> deployed-product impact. Full methodology finding:
+> [`findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md`](https://github.com/euanmcrosson-dotcom/purple-scaffold/blob/master/findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+
 **Recipient:** xAI Security
 (`security@x.ai` is the customary destination — verify against
 https://x.ai/legal/responsible-disclosure or current public docs

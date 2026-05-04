@@ -628,15 +628,22 @@ async def _run_agent_via_litellm(
     sandbox: Path,
     max_turns: int = 8,
     log_label: str = "",
+    turn_delay_seconds: float = 0.0,
 ) -> SessionLog:
     """Generic litellm-backed agent loop. Used for Gemini and other
     providers without a dedicated path. Treats responses as the
     OpenAI-shaped object (litellm normalises across providers).
 
+    `turn_delay_seconds` adds a sleep between agent turns. Use 15s
+    for Gemini free tier (5 RPM ceiling makes multi-turn loops fail
+    without throttling). Default 0 for paid-tier / non-rate-limited
+    providers.
+
     Caveat: Gemini's tool-calling shape is best-effort through litellm
     — if the upstream `tool_calls` field isn't populated, this loop
     will exit early. That's acceptable signal (means the model didn't
     use tools), and the session log still captures the assistant text."""
+    import asyncio as _asyncio
     import litellm
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -666,6 +673,8 @@ async def _run_agent_via_litellm(
                 ]
 
                 for turn_idx in range(max_turns):
+                    if turn_idx > 0 and turn_delay_seconds > 0:
+                        await _asyncio.sleep(turn_delay_seconds)
                     kwargs: dict[str, Any] = {
                         "model": model,
                         "messages": messages,
@@ -767,12 +776,19 @@ async def _run_agent_via_litellm(
 
 
 def _run_agent(model: str, **kwargs) -> SessionLog:
-    """Dispatch to the right provider-specific agent loop."""
+    """Dispatch to the right provider-specific agent loop.
+
+    Gemini gets a default 15s inter-turn delay because the free tier
+    rate-limits at 5 RPM and multi-turn loops blow through that fast.
+    Override via `turn_delay_seconds` kwarg."""
     if model.startswith("anthropic/"):
+        kwargs.pop("turn_delay_seconds", None)
         return asyncio.run(_run_agent_anthropic(model=model, **kwargs))
     if model.startswith("openai/") or model.startswith("xai/"):
+        kwargs.pop("turn_delay_seconds", None)
         return asyncio.run(_run_agent_openai(model=model, **kwargs))
     if model.startswith("gemini/"):
+        kwargs.setdefault("turn_delay_seconds", 15.0)
         return asyncio.run(_run_agent_via_litellm(model=model, **kwargs))
     raise ValueError(
         f"Unsupported model prefix in {model!r}; supported: anthropic/, openai/, xai/, gemini/"

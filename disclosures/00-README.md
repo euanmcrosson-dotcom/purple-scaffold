@@ -11,6 +11,23 @@ the verbatim quoted output sections (they're the citable evidence).
 | `xai-grok-mcp-filesystem.md` | xAI | `security@x.ai` (verify before sending) |
 | `anthropic-haiku-disguise-gap.md` | Anthropic | [HackerOne Anthropic](https://hackerone.com/anthropic) |
 
+**All four submissions have a `READ FIRST — methodology caveat`
+block at the top citing the
+[prompt-only vs agent-loop methodology finding](../findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+That caveat:
+
+- Frames the prompt-only number as a model-disposition signal
+  useful for safety-evaluation suites, NOT as a guaranteed
+  product-impact measure.
+- Discloses that we have agent-loop data (Anthropic Haiku 4.5,
+  xAI Grok 4.1: both 0/3) showing materially lower compliance
+  when the same poisoned content arrives as a tool_result.
+- Offers to re-run with the recipient's preferred methodology
+  on request.
+
+Submitting without this caveat risks being characterised as
+overstating product impact — leave the caveat in.**
+
 ## Suggested submission order
 
 1. **OpenAI first** — the SSH-key exfil chain is the most concrete

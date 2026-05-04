@@ -1,5 +1,23 @@
 # Disclosure to OpenAI: GPT-4o + GPT-4o-mini comply with filesystem-MCP indirect prompt injection — SSH-key exfiltration chain executed end-to-end
 
+> **READ FIRST — methodology caveat (2026-05-04):**
+> The compliance numbers in this submission are from a *prompt-only*
+> probe. We have since built a real MCP-server-backed agent-loop
+> probe; for the providers we've tested in agent loop (Anthropic
+> Haiku 4.5, xAI Grok 4.1 Fast Reasoning), compliance dropped to
+> 0/3 vs 25% / 75% in prompt-only. We have not yet been able to
+> run GPT-4o / GPT-4o-mini in agent-loop mode (test-environment
+> OpenAI API key was rejected as malformed at the time of writing).
+> Treat the prompt-only number below as a model-disposition signal
+> useful for safety-evaluation suites; consider it likely overstated
+> as a measure of product impact in deployed agent products that
+> route file content through tool results. Full methodology
+> finding:
+> [`findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md`](https://github.com/euanmcrosson-dotcom/purple-scaffold/blob/master/findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+> If the OpenAI safety / evaluations team would benefit from agent-
+> loop data on GPT-4o / GPT-4o-mini specifically, we'll re-run with
+> a working key and supply that data on request.
+
 **Recipient:** OpenAI Security via [Bugcrowd](https://bugcrowd.com/openai)
 **Date:** 2026-05-04
 **Models affected:** `openai/gpt-4o`, `openai/gpt-4o-mini`

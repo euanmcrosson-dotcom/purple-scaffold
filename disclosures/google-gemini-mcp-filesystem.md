@@ -1,5 +1,21 @@
 # Disclosure to Google: Gemini 2.5 Flash silently complies with filesystem-MCP indirect prompt injection — reads ~/.ssh/id_rsa and ./.env from injection content
 
+> **READ FIRST — methodology caveat (2026-05-04):**
+> The compliance numbers in this submission are from a *prompt-only*
+> probe. We have since built a real MCP-server-backed agent-loop
+> probe; for the providers we've tested in agent loop (Anthropic
+> Haiku 4.5, xAI Grok 4.1 Fast Reasoning), compliance dropped to
+> 0/3 vs 25% / 75% in prompt-only. Gemini agent-loop measurement
+> was rate-limited on the free tier at the time of writing; if
+> the AI VRP team would benefit from agent-loop data on Gemini 2.5
+> Flash specifically, we'll re-run with paid-tier rate limits and
+> supply that data on request. Treat the prompt-only number below
+> as a model-disposition signal useful for safety-evaluation suites;
+> consider it likely overstated as a measure of product impact in
+> deployed agent products that route file content through tool
+> results. Full methodology finding:
+> [`findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md`](https://github.com/euanmcrosson-dotcom/purple-scaffold/blob/master/findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+
 **Recipient:** Google AI Vulnerability Reward Program
 ([bughunters.google.com](https://bughunters.google.com/about/rules/google-friends/5238615256793088/abuse-vulnerability-reward-program-rules))
 **Date:** 2026-05-04

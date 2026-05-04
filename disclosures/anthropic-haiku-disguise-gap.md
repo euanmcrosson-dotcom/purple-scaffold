@@ -1,5 +1,30 @@
 # Safety telemetry to Anthropic: Haiku 4.5 misses HTML-comment-disguised filesystem-MCP injection that Opus 4.7 catches
 
+> **READ FIRST — methodology caveat (2026-05-04):**
+> The 25% compliance number in this submission is from a *prompt-only*
+> probe. We have since built a real MCP-server-backed agent-loop
+> probe and re-tested Haiku 4.5 on the same scenarios. In the
+> agent-loop probe — where the same poisoned content is delivered
+> as a `tool_result` from a real `read_text_file` call, the way it
+> actually arrives in production deployments — Haiku 4.5 emitted
+> **0/3 attack tool_uses**. The HTML-comment-disguised injection
+> recognition gap that we cite below is real and reproducible in
+> the prompt-only probe; we have not observed it in the agent-loop
+> probe with the current scenarios. This may be of additional
+> evaluation-suite interest because:
+>
+> - Haiku 4.5 is the model in the panel that flips behaviour most
+>   between prompt-only and agent-loop framings; Opus 4.7 is 0%
+>   in both. The cross-framing-stability gap between the two is
+>   itself a useful safety-team signal.
+> - The HTML-comment "documentation tooling directive" framing
+>   defeats Haiku's prompt-only recognition pattern; the agent-loop
+>   structural signal ("this content arrived as a tool_result, not
+>   user prompt") restores recognition. Worth understanding why.
+>
+> Full methodology finding:
+> [`findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md`](https://github.com/euanmcrosson-dotcom/purple-scaffold/blob/master/findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+
 **Recipient:** Anthropic
 ([HackerOne Anthropic](https://hackerone.com/anthropic) for safety
 telemetry; or
