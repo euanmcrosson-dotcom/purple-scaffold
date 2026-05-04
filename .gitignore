@@ -8,3 +8,6 @@ venv/
 runs/
 *.swp
 .DS_Store
+.env
+.env.*
+!.env.example
