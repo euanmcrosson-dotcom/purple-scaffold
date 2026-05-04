@@ -1,0 +1,152 @@
+name: nightly-panel
+
+# Re-runs the agent-loop probe + product simulator + fetch probe
+# nightly against Anthropic Haiku 4.5 (cheapest model with adequate
+# signal — see findings/2026-05-04-prompt-only-vs-agent-loop-injection-gap.md).
+#
+# Cost per nightly run: ~$0.80 of Anthropic API spend (estimated)
+#   - headless filesystem probe: 4 scenarios × ~5 turns = ~$0.10
+#   - product simulator: 5 profiles × 4 scenarios × ~5 turns = ~$0.50
+#   - fetch probe: 4 scenarios × ~3 turns = ~$0.05
+# Plus ~$0.20 GHA compute (2-3 min runtime within the free tier).
+#
+# How to disable: delete this workflow file, or comment out the
+# `schedule:` line below to keep manual-only triggering.
+#
+# How to add more models: extend the matrix below. Cost scales
+# linearly. Add OPENAI_API_KEY / GEMINI_API_KEY / XAI_API_KEY as
+# repo secrets to enable cross-provider runs.
+#
+# Outputs:
+#   - LEADERBOARD.md (rewritten on every successful run; committed)
+#   - panel-results/<YYYY-MM-DD>.jsonl (archived, committed)
+#   - GitHub Actions run artifacts (raw JSONL session logs)
+
+on:
+  schedule:
+    # 06:00 UTC daily — late evening US west / morning Europe.
+    - cron: "0 6 * * *"
+  workflow_dispatch:   # allow manual trigger from the Actions tab
+
+permissions:
+  contents: write     # to commit LEADERBOARD.md + panel-results/
+
+jobs:
+  panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node (for npm-based MCP servers)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,product]"
+          pip install mcp-server-fetch
+          npm install -g @modelcontextprotocol/server-filesystem
+
+      - name: Verify API key is present (skip silently if not)
+        id: keys
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANTHROPIC_API_KEY not configured as repo secret — skipping panel run."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Run filesystem agent-loop probe
+        if: steps.keys.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs/headless
+          python -m examples.demo_mcp_headless_target \
+            --models "anthropic/claude-haiku-4-5-20251001" \
+            --scenarios all \
+            --max-turns 6 \
+            --out "runs/headless/nightly-$(date -u +%Y-%m-%d).jsonl"
+
+      - name: Run product simulator
+        if: steps.keys.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs/products
+          python -m examples.demo_product_simulator \
+            --models "anthropic/claude-haiku-4-5-20251001" \
+            --products all --scenarios all --max-turns 6 \
+            --out "runs/products/nightly-$(date -u +%Y-%m-%d).jsonl"
+
+      - name: Run fetch probe (with local target)
+        if: steps.keys.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs/fetch
+          # Start the local poisoned target in the background.
+          python lab/vulnerable_fetch_targets.py &
+          TARGET_PID=$!
+          sleep 2
+          set +e
+          python -m examples.demo_mcp_fetch_target \
+            --models "anthropic/claude-haiku-4-5-20251001" \
+            --scenarios all --max-turns 6 \
+            --out "runs/fetch/nightly-$(date -u +%Y-%m-%d).jsonl"
+          PROBE_RC=$?
+          kill $TARGET_PID 2>/dev/null || true
+          exit $PROBE_RC
+
+      - name: Generate LEADERBOARD.md
+        if: steps.keys.outputs.skip != 'true'
+        run: |
+          python scripts/generate_leaderboard.py
+          mkdir -p panel-results
+          # Archive a single combined per-day JSONL alongside the
+          # individual probe logs.
+          DATE=$(date -u +%Y-%m-%d)
+          ARCHIVE="panel-results/${DATE}.jsonl"
+          rm -f "$ARCHIVE"
+          for f in \
+            "runs/headless/nightly-${DATE}.jsonl" \
+            "runs/products/nightly-${DATE}.jsonl" \
+            "runs/fetch/nightly-${DATE}.jsonl"; do
+            if [ -f "$f" ]; then cat "$f" >> "$ARCHIVE"; fi
+          done
+
+      - name: Commit + push leaderboard
+        if: steps.keys.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add LEADERBOARD.md panel-results/
+          if ! git diff --cached --quiet; then
+            git commit -m "nightly-panel: update LEADERBOARD.md ($(date -u +%Y-%m-%d))"
+            git push
+          else
+            echo "No leaderboard changes to commit."
+          fi
+
+      - name: Upload raw JSONL artifacts
+        if: steps.keys.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: panel-${{ github.run_number }}
+          path: |
+            runs/headless/nightly-*.jsonl
+            runs/products/nightly-*.jsonl
+            runs/fetch/nightly-*.jsonl
+          retention-days: 30
