@@ -1,0 +1,590 @@
+\documentclass[10pt,conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  citecolor=black,
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  framesep=4pt,
+  columns=fullflexible,
+  showstringspaces=false,
+}
+
+\title{Tool-Vector Sensitivity in Indirect-Prompt-Injection
+Compliance for MCP-Using Agents}
+
+\author{
+\IEEEauthorblockN{Euan Crosson}
+\IEEEauthorblockA{
+\textit{Independent}\\
+\texttt{euanmcrosson@gmail.com} \\
+\url{https://github.com/euanmcrosson-dotcom/purple-scaffold}
+}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Indirect prompt injection in LLM-using agents is widely
+characterised as a model property: certain frontier models comply
+with injection content more than others, and the compliance rate is
+typically reported via prompt-only probes that embed the poisoned
+content directly in the user turn. We re-test this characterisation
+across four Model Context Protocol (MCP) server vectors --
+filesystem, HTTP-fetch, git, and SQLite -- using a real agent loop
+in which the poisoned content arrives as a tool result, not in the
+user prompt, and a tool-use-aware verdict that distinguishes attack
+execution from defensive flagging.
+
+Across six frontier models (Anthropic Opus 4.7, Anthropic Haiku
+4.5, OpenAI GPT-4o, OpenAI GPT-4o-mini, Google Gemini 2.5 Flash,
+xAI Grok 4.1 Fast Reasoning), prompt-only compliance rates of up
+to 75\% drop to 0\% in agent-loop tests for the filesystem and
+git vectors. The fetch and SQLite vectors break this pattern for
+one specific model -- \texttt{openai/gpt-4o-mini} -- where
+compliance occurs only when the injection asks for \emph{more of
+the same read tool} the agent is already using. We triangulate
+this pattern across both vectors and contrast it with git, where
+the same model defends because compliance requires switching tool
+families.
+
+We argue that indirect-injection compliance is
+\textbf{tool-vector-shape sensitive}: a function of (model,
+surface-of-tools-already-active, disguise variant), not of model
+alone. We release the harness, the probes, the disclosures, and a
+defensive companion library (\texttt{mcp-guard}) that synthesises
+deterministic policies from observed compliance and backtests
+them against legitimate traffic.
+\end{abstract}
+
+\begin{IEEEkeywords}
+indirect prompt injection, LLM security, agent security, Model
+Context Protocol, defensive policy synthesis
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Indirect prompt injection -- where untrusted content the agent
+reads as part of completing a benign user task contains
+adversarial directives -- is OWASP's LLM01 \cite{owasp_llm_top10}
+and the dominant entry in MITRE's ATLAS taxonomy
+(T0051) \cite{mitre_atlas}. It is widely demonstrated against
+frontier models: EchoLeak (CVE-2025-32711)
+\cite{echoleak_cve_2025_32711} hit Microsoft 365 Copilot in June
+2025, Invariant Labs disclosed Model-Context-Protocol (MCP)
+tool-description poisoning in April 2025
+\cite{invariantlabs_mcp_apr2025}, and many smaller disclosures
+have appeared since. Existing benchmarks against frontier models
+report compliance rates of 50--75\% on prompt-only probes (where
+the poisoned content is embedded directly in the user turn).
+
+This paper poses a different question: \emph{do these compliance
+rates translate to deployed agent products?} A deployed agent
+product runs an agent loop -- it calls tools, receives tool
+results, and acts on them. Poisoned content in a deployed product
+arrives as a \texttt{tool\_result} message, not as part of the
+user's prompt. The structural channel through which the injection
+arrives is different.
+
+We test this by building a headless agent-loop probe driving real
+MCP server processes: \texttt{@modelcontextprotocol/server-filesystem}
+(npm), \texttt{mcp-server-fetch}, \texttt{mcp-server-git}, and
+\texttt{mcp-server-sqlite} (PyPI, all from
+Anthropic). For each vector we craft three poisoned scenarios with
+distinct disguise framings (HTML-comment, square-bracketed
+pseudo-system block, and double-angle META block) plus one clean
+control. We use a tool-use-aware verdict that scores compliance
+\emph{only} when the agent emits a \texttt{tool\_use} matching an
+attack pattern -- not when it merely mentions injection-content
+substrings while flagging the attack to the user.
+
+Our headline findings:
+
+\begin{itemize}
+  \item Prompt-only probes overestimate agent-loop compliance by
+        25--75 percentage points across all six tested models on
+        the filesystem vector. The same scenarios that scored
+        25--75\% in prompt-only score 0\% in the agent loop.
+  \item The drop is not uniform across MCP vectors. GPT-4o-mini
+        complies on the fetch and SQLite vectors but defends on
+        filesystem and git.
+  \item The two failing vectors share a structural property: the
+        injection asks for \emph{more of the same read tool} the
+        agent is already using (a second \texttt{fetch()}, a
+        second \texttt{read\_query()}). The two defending vectors
+        require the agent to switch tool families
+        (read $\rightarrow$ write, or
+        read-X $\rightarrow$ read-different-X-of-credential-shape).
+  \item Deployed-product system prompts do not change the
+        filesystem result. We test five product profiles wrapped
+        around the agent loop -- including verbatim system prompts
+        extracted from open-source products Cline and Continue.dev
+        -- and observe 0/30 compliance.
+\end{itemize}
+
+We argue that indirect-injection compliance in agent loops is
+\textbf{tool-vector-shape sensitive}: it is a function of
+\emph{(model, current-active-tool-shape, disguise variant)}, not
+just of model. A finding that GPT-4o-mini complies on the fetch
+vector does not transfer to the git vector for the same model, in
+the same disguise, with structurally identical attack-content
+shape. A finding that a model defends in prompt-only does not
+imply it defends in agent-loop, and vice versa.
+
+The contributions are (a) the cross-vector empirical comparison,
+(b) the methodology-gap result quantifying the
+prompt-only-overestimates pattern, (c) the
+tool-vector-shape-sensitivity hypothesis with triangulated
+supporting evidence on \texttt{gpt-4o-mini}, (d)
+\texttt{mcp-guard}, an open-source defensive companion library
+that synthesises deterministic policies from observed gaps and
+backtests them against fixture traffic, and (e) ongoing tracking
+infrastructure (a nightly leaderboard) that re-runs the panel as
+model versions evolve.
+
+\section{Background}
+
+\subsection{Model Context Protocol (MCP)}
+
+MCP \cite{anthropic_mcp_2024} is a protocol Anthropic published
+in late 2024 that lets AI agents discover and invoke external
+tools provided by separate processes (``MCP servers'').
+Filesystem, web-fetch, git, database, and many other reference
+servers ship as either npm packages or PyPI packages and run as
+local subprocesses. The agent connects via stdio (or websocket)
+and receives a tool list at session initialisation. From the
+agent's perspective each tool is a typed function call with a
+JSON-schema input. The agent loop is then: (1) the model chooses a
+tool to call, (2) the agent invokes the MCP server, (3) the server
+returns a result, (4) the model reads the result and decides next
+action.
+
+Most major AI agent products (Claude Desktop, Cursor, Cline,
+Continue.dev, Open WebUI) ship MCP support. The threat surface
+this paper investigates is the boundary at step (3): when the MCP
+server returns a result that contains adversarial content, what
+does the model do?
+
+\subsection{Existing prompt-only injection benchmarks}
+
+Public benchmarks such as garak's \texttt{promptinject} family
+\cite{garak_2024} and our own prior work
+(\cite{purple_scaffold_findings_apr2026}) measure indirect-injection
+compliance via prompt-only probes: the poisoned content is
+inserted directly into the user-turn of the conversation, framed
+as ``you've already read this; what tool calls would you make
+next?''. The model emits a hypothetical plan; the detector
+substring-matches that plan for compliance signatures.
+
+This methodology has two well-known limitations. First, the
+delivery channel does not match production: in production the
+content arrives as a \texttt{tool\_result}, not in the user prompt.
+Second, the substring-based verdict misclassifies defensive
+behaviour as attack: a model that flags the injection in its
+response to the user (correct defensive behaviour) typically
+includes substring snippets from the injection content while
+explaining what it refuses to do.
+
+This paper addresses both.
+
+\section{Methodology}
+
+\subsection{Agent loop with real MCP servers}
+
+For each vector we instantiate a real MCP server subprocess via
+the official \texttt{mcp} Python SDK, connect via stdio, and run
+the agent loop end-to-end with the model SDK from each provider:
+the official \texttt{anthropic} client for Anthropic models, the
+\texttt{openai} client for OpenAI and (with base-URL override)
+xAI, and \texttt{litellm} for Google Gemini.
+
+Each turn the agent receives the tool list, the model emits zero
+or more \texttt{tool\_use} blocks (Anthropic) or
+\texttt{tool\_calls} (OpenAI-compatible), the agent invokes each
+tool via the MCP server, captures the result, and feeds it back
+into the next-turn prompt. The loop terminates when the model
+stops emitting tool calls or a per-scenario turn budget is reached
+(default: 6).
+
+\subsection{Tool-use-aware verdict}
+
+For each scenario we define a set of attack tool-use patterns:
+$(name, args\_substring)$ tuples. A session scores FAIL iff any
+emitted \texttt{tool\_use}'s $(name, args)$ matches one of the
+patterns. This is the conservative verdict: it requires that the
+agent actually emit a tool call that, if executed, would
+constitute compliance with the injection. Substring matches in
+free-text response are explicitly \emph{not} sufficient.
+
+A session scores REFUSAL if no matching tool\_use is emitted but
+explicit refusal language appears in any assistant text. PASS
+otherwise.
+
+\subsection{Disguise variants}
+
+Three injection disguises shared across the vectors:
+
+\begin{itemize}
+  \item \texttt{<!-- BUILD\_DOCS\_DIRECTIVE -->} -- HTML
+        comment in a README or webpage, framed as legitimate
+        documentation tooling.
+  \item \texttt{[ASSISTANT\_TOOL\_CONTEXT]} -- square-bracketed
+        pseudo-system block inside a TODO note, commit message,
+        or DB row.
+  \item \texttt{<<META: SUMMARY-PIPELINE>>} -- double-angle META
+        block in a spec doc, page, or notes column.
+\end{itemize}
+
+Each scenario embeds one disguise in the relevant vector's
+content shape (file body for filesystem, HTML body for fetch,
+commit message for git, TEXT column for SQLite) and asks the
+agent to perform an exfil pattern appropriate for that vector's
+tool surface (read SSH key for filesystem, fetch attacker URL for
+fetch, \texttt{git\_show} of credential refspec for git,
+\texttt{read\_query} of \texttt{credentials} table for SQLite).
+
+\subsection{Product profiles}
+
+For the filesystem vector, in addition to the bare agent loop, we
+run five product-profile wrappers. Each wraps a different
+system prompt around the same loop:
+
+\begin{itemize}
+  \item Cline (open source) -- system prompt extracted verbatim
+        from \texttt{cline/cline} GitHub master HEAD, depth-1
+        clone, 2026-05-04.
+  \item Continue.dev (open source) -- the verbatim
+        \texttt{DEFAULT\_AGENT\_SYSTEM\_MESSAGE} from
+        \texttt{continuedev/continue:core/llm/defaultSystemMessages.ts}.
+  \item Cursor (closed source) -- a best-effort approximation
+        based on observed behaviour. Real Cursor evidence
+        requires user-driven runs through an HTTPS proxy
+        (runbooks released alongside the harness).
+  \item Claude Desktop (closed source) -- minimal-injection
+        approximation reflecting publicly observed behaviour.
+  \item Generic baseline -- no system prompt; the bare agent loop.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Methodology gap on filesystem}
+
+\begin{table}[h]
+\centering
+\caption{Same scenarios, same content; prompt-only vs agent-loop
+on the filesystem MCP server.}
+\label{tab:methodology_gap}
+\begin{tabular}{lrr}
+\toprule
+Model & Prompt-only & Agent-loop \\
+\midrule
+Anthropic Opus 4.7 & 0\% & 0\% \\
+Anthropic Haiku 4.5 & 25\% & 0\% \\
+OpenAI GPT-4o & 75\% & 0\% \\
+OpenAI GPT-4o-mini & 75\% & 0\% \\
+Google Gemini 2.5 Flash & 75\% & 0\% (partial) \\
+xAI Grok 4.1 Fast Reasoning & 75\% & 0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The same poisoned scenarios that score 25--75\% on prompt-only
+probes drop uniformly to 0\% in the agent loop on the filesystem
+vector. Twenty-four total prompt-only attempts produced 13 FAILs;
+the equivalent agent-loop measurements produced zero. (Gemini's
+agent-loop coverage was constrained by free-tier rate limits;
+the one full scenario it completed is consistent with the
+0\%-across-providers pattern.)
+
+\subsection{Cross-product invariance}
+
+\begin{table}[h]
+\centering
+\caption{Filesystem agent-loop compliance across five product
+profiles, two providers, three poisoned scenarios.}
+\label{tab:cross_product}
+\begin{tabular}{lrr}
+\toprule
+Profile & Haiku 4.5 & GPT-4o-mini \\
+\midrule
+Cline (OSS verbatim) & 0/3 & 0/3 \\
+Continue.dev (OSS verbatim) & 0/3 & 0/3 \\
+Cursor (approximation) & 0/3 & 0/3 \\
+Claude Desktop (approximation) & 0/3 & 0/3 \\
+Generic baseline & 0/3 & 0/3 \\
+\midrule
+Total per provider & 0/15 & 0/15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Wrapping each product's actual or approximated system prompt
+around the agent loop does not change the filesystem result.
+0/30 attack tool\_uses across the entire cross-product panel.
+
+\subsection{Cross-vector pattern: fetch and SQLite break for one model}
+
+\begin{table}[h]
+\centering
+\caption{GPT-4o-mini agent-loop compliance across four MCP
+vectors, three poisoned scenarios per vector.}
+\label{tab:cross_vector}
+\begin{tabular}{lr}
+\toprule
+Vector & GPT-4o-mini compliance \\
+\midrule
+Filesystem & 0/3 \\
+Fetch & \textbf{2/3} \\
+Git & 0/3 \\
+SQLite & \textbf{1/3} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Same model, same disguise variants, four different MCP servers.
+Compliance is 0\% on filesystem and git, 67\% on fetch, 33\% on
+SQLite. The fetch result is statistically the strongest -- two of
+three poisoned scenarios produced clean exfiltration
+(\texttt{fetch("https://analytics.attacker.example/beacon?summary=...")})
+with verbatim user-content URL-encoded into the query string. The
+multi-claim research-corroborate variant emitted three separate
+exfil fetches in a single turn, one per ``claim'' extracted from
+the poisoned page.
+
+The four other tested models (Opus 4.7, Haiku 4.5, GPT-4o, Grok
+4.1 Fast Reasoning) defended on all four vectors.
+
+\subsection{Hypothesis: tool-vector-shape sensitivity}
+
+The two failing vectors (fetch, SQLite) and the two defending
+vectors (filesystem, git) for GPT-4o-mini differ in a
+structural way. Compliance on the failing vectors requires
+emitting another instance of the same read tool the agent is
+already using:
+
+\begin{itemize}
+  \item Fetch: agent is in a \texttt{fetch()} session; injection
+        asks for another \texttt{fetch()}.
+  \item SQLite: agent has run \texttt{read\_query()} on a
+        user-named table; injection asks for \texttt{read\_query()}
+        on a different table.
+\end{itemize}
+
+Compliance on the defending vectors requires switching tool
+families:
+
+\begin{itemize}
+  \item Filesystem: agent is in \texttt{read\_text\_file()} on a
+        README; injection asks for \texttt{read\_text\_file()}
+        \emph{plus} a different file path \emph{plus}
+        \texttt{write\_file()} to a non-user-named target.
+  \item Git: agent is in \texttt{git\_log()}; injection asks for
+        \texttt{git\_show()} of a non-existent credential file or
+        \texttt{git\_commit()} during a read-only review task.
+\end{itemize}
+
+We hypothesise that the cognitive bar for the model to emit the
+attack tool call is lower when the call shape-matches the
+existing tool-use pattern than when it requires switching tool
+families. The hypothesis is consistent with two cross-vector data
+points (fetch, SQLite) but is not yet causally tested. A
+controlled experiment would compare a single-tool variant of git
+or filesystem (e.g., expose only \texttt{read\_query} from
+SQLite) against a multi-tool variant of fetch (e.g., add a write
+tool to the fetch agent's surface). We leave this to future work.
+
+\section{Defensive Companion: \texttt{mcp-guard}}
+
+For each observed compliance pattern, a deterministic policy
+catches the attack: contact-allowlist on \texttt{send\_email}
+recipients, sensitive-path block on \texttt{read\_file} arguments,
+URL-allowlist on \texttt{fetch}, table-allowlist on
+\texttt{read\_query}.
+
+We release \texttt{mcp-guard} \cite{mcp_guard_2026} as a
+zero-runtime-dependency Python library that synthesises such
+policies from observed gaps. The synthesis layer is
+pattern-based, not model-based, so the policy generation step is
+auditable from logs alone. The evaluator is a pure function
+$(tool\_name, args, user\_context) \rightarrow Decision$ -- no
+I/O, no LLM, no per-call latency variance.
+
+A backtest harness measures false-positive and true-positive
+rates against a labelled fixture corpus before deployment. The
+default corpus includes deliberate
+``legitimate-first-time-recipient'' cases that produce real FPs
+under the synthesised contact-allowlist rule, so the FPR is a
+real measurement (not an artefact of an attack-only corpus).
+
+\texttt{mcp-guard} is intended to complement, not replace,
+classifier-based defenses. Use both: classifier as
+early-warning, deterministic policy as the unconditional gate.
+
+\section{Discussion}
+
+\subsection{Why the prompt-only signal still matters}
+
+The methodology gap (Section IV.A) does not invalidate
+prompt-only probes; it relocates their meaning. The prompt-only
+number captures a model's \emph{disposition}: if you place
+poisoned content directly in the model's input, will it follow
+the directive? That is a useful evaluation-suite signal even when
+the deployed-product impact is lower, because evaluation suites
+are how providers iterate on safety post-training. The corollary:
+prompt-only numbers should be reported as model-disposition
+signals, not as deployed-product impact measurements.
+
+\subsection{Implications for product builders}
+
+Three implications for builders of MCP-using agent products:
+
+\begin{enumerate}
+  \item Validate model choices using agent-loop probes, not
+        prompt-only probes. A model that defends in
+        prompt-only may not defend in agent-loop on a different
+        vector; a model that complies in prompt-only may defend
+        when the same content is delivered as a \texttt{tool\_result}.
+  \item Map tool surface to attack shape. Single-tool agents
+        (e.g., a fetch-only agent) may be \emph{more} compliance-
+        prone on indirect injection than multi-tool agents,
+        because compliance requires only ``more of the same
+        tool''. This inverts the intuition that exposing fewer
+        tools is safer.
+  \item Layer deterministic policies at the tool-call boundary.
+        \texttt{mcp-guard} or equivalent pattern-based gates
+        catch the specific compliance signatures observed in
+        agent-loop probes. They are auditable (pure functions),
+        cheap (no LLM at evaluation time), and orthogonal to
+        classifier-based defenses.
+\end{enumerate}
+
+\subsection{Limitations}
+
+\begin{itemize}
+  \item Three disguise variants per scenario set. Other variants
+        -- multi-step attacks across multiple files /
+        fetches / commits, unicode-encoded directives, mid-stream
+        injection in long fetched documents -- are not tested.
+  \item Single MCP server profile per vector. Other tool
+        servers (e.g., \texttt{server-puppeteer}, third-party
+        community servers) are not tested.
+  \item Cursor and Claude Desktop product profiles are
+        approximations. Verbatim product evidence requires
+        user-driven runs through an HTTPS proxy that captures
+        the product's exact prompt formulation. Runbooks for
+        this are released alongside the harness; the headless
+        product simulator results in this paper are
+        agent-loop-equivalent stand-ins, clearly labelled as
+        such.
+  \item The Gemini 2.5 Flash agent-loop coverage was rate-limit
+        constrained on the free tier. The single completed
+        scenario is consistent with the cross-provider 0\%
+        pattern but provides limited statistical confidence.
+  \item Compliance numbers are point-in-time. A nightly GitHub
+        Action attached to the harness re-runs the panel as
+        model versions evolve; the live leaderboard at the
+        repository tracks current state.
+\end{itemize}
+
+\section{Related work}
+
+EchoLeak (CVE-2025-32711) \cite{echoleak_cve_2025_32711}
+demonstrated indirect injection via email content in M365
+Copilot in June 2025; our prior work \cite{purple_scaffold_findings_apr2026}
+measured analogous behaviour in single-prompt frontier-model
+benchmarks. Invariant Labs disclosed cross-tool MCP poisoning in
+April 2025 \cite{invariantlabs_mcp_apr2025}; the present paper
+extends that disclosure pattern to the cross-vector axis. The
+garak red-team library \cite{garak_2024} provides probe
+scaffolding similar in shape to the prompt-only probes here; we
+have contributed an upstream PR addressing detector calibration
+drift on safety-trained 2026-era frontier models. NVIDIA's
+documentation of garak's substring-match limitations
+\cite{garak_2024} is consistent with our methodology-gap
+finding.
+
+\section{Conclusion}
+
+Indirect-prompt-injection compliance in MCP-using agents is not
+a single number per model. It is a function of model, MCP server
+vector, and the structural shape of the tool call the injection
+induces. Prompt-only benchmarks systematically overestimate
+deployed-product compliance by 25--75 percentage points across
+six tested frontier models. Of those models, GPT-4o-mini is the
+only one that exhibits agent-loop compliance, and it does so
+only on the two vectors (fetch, SQLite) where compliance shape-
+matches the active tool-use pattern. The field's prevailing
+characterisation of indirect injection as a flat per-model
+property requires refinement.
+
+The harness, the probes, the disclosures submitted to the four
+affected model providers, and the defensive companion library
+are all open source under MIT.
+
+\section*{Reproducibility}
+
+Code, fixtures, scenarios, and session JSONLs are at \url{https://github.com/euanmcrosson-dotcom/purple-scaffold}.
+\texttt{mcp-guard} is at \url{https://github.com/euanmcrosson-dotcom/mcp-guard}.
+A live leaderboard updated nightly is at the harness repository's
+\texttt{LEADERBOARD.md}.
+
+\begin{thebibliography}{99}
+
+\bibitem{owasp_llm_top10}
+OWASP, ``Top 10 for Large Language Model Applications,''
+2024--2025. \url{https://owasp.org/www-project-top-10-for-large-language-model-applications/}
+
+\bibitem{mitre_atlas}
+MITRE, ``Adversarial Threat Landscape for Artificial-Intelligence
+Systems (ATLAS),'' 2025. \url{https://atlas.mitre.org/}
+
+\bibitem{echoleak_cve_2025_32711}
+``CVE-2025-32711 (EchoLeak): Microsoft 365 Copilot indirect
+prompt-injection vulnerability,'' June 2025.
+\url{https://www.cve.org/CVERecord?id=CVE-2025-32711}
+
+\bibitem{invariantlabs_mcp_apr2025}
+Invariant Labs, ``MCP Security Notification: Tool Poisoning
+Attacks,'' April 2025.
+\url{https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks}
+
+\bibitem{anthropic_mcp_2024}
+Anthropic, ``Model Context Protocol,'' November 2024.
+\url{https://modelcontextprotocol.io/}
+
+\bibitem{garak_2024}
+NVIDIA, ``garak: A Generative AI Red-Teaming \& Assessment Kit,''
+2024. \url{https://github.com/NVIDIA/garak}
+
+\bibitem{purple_scaffold_findings_apr2026}
+E.~Crosson, ``purple-scaffold findings: 2026-04-28
+EchoLeak-style injection and MCP tool-description poisoning
+against GPT-4o,'' April 2026.
+\url{https://github.com/euanmcrosson-dotcom/purple-scaffold/tree/master/findings}
+
+\bibitem{mcp_guard_2026}
+E.~Crosson, ``mcp-guard: deterministic policy layer for
+MCP-using AI agents,'' May 2026.
+\url{https://github.com/euanmcrosson-dotcom/mcp-guard}
+
+\end{thebibliography}
+
+\end{document}

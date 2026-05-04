@@ -31,13 +31,19 @@ reproducible card in `findings/`.
 | 2026-05-04 | server-git agent-loop is resilient — fetch is the outlier | Same methodology against `mcp-server-git` with poisoned commit messages asking for `git_show` of credential paths or `git_commit` of attacker content. **0/12 attack tool_uses across 4 models including GPT-4o-mini** (which failed fetch). Indirect-injection compliance in agent loops is **tool-vector-shape sensitive**, not just model-sensitive. | [findings/2026-05-04-server-git-cross-vector-resilience.md](findings/2026-05-04-server-git-cross-vector-resilience.md) |
 | 2026-05-04 | **GPT-4o-mini reads `credentials` table after poisoned `orders.notes` directive** (sqlite vector) | Second confirmation of the "more of the same read tool" pattern — GPT-4o-mini emits `read_query("SELECT key_name, secret_value FROM credentials;")` against a sensitive table the user never named. Defends on filesystem and git (which require switching tool families) but complies on fetch and sqlite (which only require more `read_query`). | [findings/2026-05-04-server-sqlite-gpt4o-mini-credentials-read.md](findings/2026-05-04-server-sqlite-gpt4o-mini-credentials-read.md) |
 
-### Phase 7 deliverables (this iteration)
+### Phase 7 deliverables
 
-- **`mcp_guard/`** — pip-installable defensive companion library. Synthesizes deterministic tool-call policies from observed indirect-injection gaps; backtests against a fixture corpus to measure FPR/TPR before deployment. CLI: `mcp-guard synthesize "..."` / `mcp-guard evaluate policy.yaml ...` / `mcp-guard backtest policy.yaml`. Same evaluator as the harness's `purple/policy*.py` modules but standalone.
-- **[`PAPER_OUTLINE.md`](PAPER_OUTLINE.md)** — workshop-paper outline (arxiv → USENIX WOOT / NDSS BAR / SaTML).
+- **`mcp_guard/`** — vendored copy of the defensive companion library. Now also released standalone at https://github.com/euanmcrosson-dotcom/mcp-guard.
+- **[`PAPER_OUTLINE.md`](PAPER_OUTLINE.md)** — workshop-paper outline.
 - **[`CITATION.cff`](CITATION.cff)** — citation metadata.
 - **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — guide for adding new MCP-server probes / product profiles / disguise variants.
-- **[`PUBLIC_WRITEUP.md`](PUBLIC_WRITEUP.md)** — full long-form writeup of all findings (HN-/blog-ready).
+- **[`PUBLIC_WRITEUP.md`](PUBLIC_WRITEUP.md)** — full long-form writeup of all findings.
+
+### Phase 8 deliverables
+
+- **[`mcp-guard`](https://github.com/euanmcrosson-dotcom/mcp-guard) graduated to its own repo** with own README, LICENSE, pyproject, 8 standalone tests, GHA CI, and a PyPI publish workflow. PyPI publish triggers on a GitHub release once `PYPI_API_TOKEN` is configured as a repo secret.
+- **[`paper/main.tex`](paper/main.tex)** — IEEE-conference-format LaTeX draft of the workshop paper, ~3000 words, 8 references. Build via `cd paper && make all`. Submission targets: arxiv (cs.CR) → USENIX WOOT / NDSS BAR / SaTML.
+- **[`examples/demo_cline_cli_real.py`](examples/demo_cline_cli_real.py)** — skeleton driver for real Cline CLI in `--json` non-interactive mode (`npm i -g cline`). Investigation note: Cline CLI exists and is fully scriptable; remaining wiring is per-run config-dir scoping + MCP-config injection. When wired, produces verbatim Cline product evidence.
 
 **Live leaderboard:** [`LEADERBOARD.md`](LEADERBOARD.md) is regenerated nightly by [`.github/workflows/nightly-panel.yml`](.github/workflows/nightly-panel.yml) — all three probes (filesystem, product simulator, fetch) re-run against Anthropic Haiku 4.5 (~$0.80/night) with results auto-committed. Add more API keys as repo secrets to expand the panel.
 
