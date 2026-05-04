@@ -18,6 +18,27 @@ reproducible card in `findings/`.
 |------|-------|-----------------|------|
 | 2026-04-28 | EchoLeak-style indirect prompt injection in email-summarization | GPT-4o (66.67% silent compliance), GPT-4o-mini (50.00%) — Anthropic models 0% | [findings/2026-04-28-echoleak-style-injection-openai.md](findings/2026-04-28-echoleak-style-injection-openai.md) |
 | 2026-04-28 | MCP tool-description prompt injection (cross-tool confused deputy) | GPT-4o, GPT-4o-mini comply with SSH-key exfil plan; Anthropic refuses | [findings/2026-04-28-mcp-tool-description-poisoning-openai.md](findings/2026-04-28-mcp-tool-description-poisoning-openai.md) |
+| 2026-05-04 (DRAFT) | Indirect prompt injection via filesystem content read by `@modelcontextprotocol/server-filesystem`-using agents | TBD — run sweep | [findings/2026-05-04-server-filesystem-indirect-injection-DRAFT.md](findings/2026-05-04-server-filesystem-indirect-injection-DRAFT.md) |
+
+To run the server-filesystem probe sweep against the 4-model panel:
+
+```powershell
+# Set ANTHROPIC_API_KEY and OPENAI_API_KEY first.
+.\scripts\run_custom_sweep.ps1
+```
+
+Single-probe single-model:
+
+```bash
+python scripts/run_custom_probes.py mcp_filesystem openai/gpt-4o
+```
+
+The probe (`custom_probes/mcp_filesystem.py`) uses
+`server-filesystem`'s actual exposed tool surface (`read_text_file`,
+`read_multiple_files`, `write_file`, `directory_tree`,
+`search_files`, etc.) and three indirect-injection scenarios + one
+control. The threat model and mitigations are documented in the draft
+finding above.
 
 ## Upstream tooling contribution
 

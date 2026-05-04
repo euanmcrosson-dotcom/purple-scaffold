@@ -8,9 +8,10 @@
 # Custom probes (under custom_probes/):
 #   - echoleak           (24 prompts) — EchoLeak-style email-summarization injection
 #   - mcp_poisoning      (4 prompts)  — MCP tool-description poisoning + 1 control
+#   - mcp_filesystem     (4 prompts)  — server-filesystem indirect injection via file content
 #
-# Cost estimate: ~$2-3
-# Runtime: ~25-40 min total
+# Cost estimate: ~$2-4
+# Runtime: ~30-50 min total
 #
 # Usage:
 #   Set-Location C:\Users\euanc\purple-scaffold
@@ -18,7 +19,7 @@
 
 $ErrorActionPreference = "Continue"
 
-$probes = @("echoleak", "mcp_poisoning")
+$probes = @("echoleak", "mcp_poisoning", "mcp_filesystem")
 
 # Gemini omitted — free-tier rate limits (5 RPM) and 503s make it
 # unusable. Add back if you upgrade Gemini to paid tier.
