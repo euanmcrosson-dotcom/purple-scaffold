@@ -1,5 +1,9 @@
 # purple-scaffold
 
+[![tests](https://github.com/euanmcrosson-dotcom/purple-scaffold/actions/workflows/test.yml/badge.svg)](https://github.com/euanmcrosson-dotcom/purple-scaffold/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
 A minimal, runnable scaffold for an iterative purple-team harness. Five
 specialist agents under a deterministic orchestrator, ATT&CK / ATLAS aware,
 producing per-technique test cards as the durable artifact.
@@ -18,7 +22,7 @@ reproducible card in `findings/`.
 |------|-------|-----------------|------|
 | 2026-04-28 | EchoLeak-style indirect prompt injection in email-summarization | GPT-4o (66.67% silent compliance), GPT-4o-mini (50.00%) — Anthropic models 0% | [findings/2026-04-28-echoleak-style-injection-openai.md](findings/2026-04-28-echoleak-style-injection-openai.md) |
 | 2026-04-28 | MCP tool-description prompt injection (cross-tool confused deputy) | GPT-4o, GPT-4o-mini comply with SSH-key exfil plan; Anthropic refuses | [findings/2026-04-28-mcp-tool-description-poisoning-openai.md](findings/2026-04-28-mcp-tool-description-poisoning-openai.md) |
-| 2026-05-04 (DRAFT) | Indirect prompt injection via filesystem content read by `@modelcontextprotocol/server-filesystem`-using agents | TBD — run sweep | [findings/2026-05-04-server-filesystem-indirect-injection-DRAFT.md](findings/2026-05-04-server-filesystem-indirect-injection-DRAFT.md) |
+| 2026-05-04 | Indirect prompt injection via filesystem content read by `@modelcontextprotocol/server-filesystem`-using agents | Haiku 4.5 25% silent compliance on disguised README directive (rationalises injection, executes requested `directory_tree` + `write_file`, hides activity from user); Opus 4.7 0% (defends articulately on all 3 poisoned scenarios) | [findings/2026-05-04-server-filesystem-indirect-injection.md](findings/2026-05-04-server-filesystem-indirect-injection.md) |
 
 To run the server-filesystem probe sweep against the 4-model panel:
 
