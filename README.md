@@ -22,7 +22,12 @@ reproducible card in `findings/`.
 |------|-------|-----------------|------|
 | 2026-04-28 | EchoLeak-style indirect prompt injection in email-summarization | GPT-4o (66.67% silent compliance), GPT-4o-mini (50.00%) — Anthropic models 0% | [findings/2026-04-28-echoleak-style-injection-openai.md](findings/2026-04-28-echoleak-style-injection-openai.md) |
 | 2026-04-28 | MCP tool-description prompt injection (cross-tool confused deputy) | GPT-4o, GPT-4o-mini comply with SSH-key exfil plan; Anthropic refuses | [findings/2026-04-28-mcp-tool-description-poisoning-openai.md](findings/2026-04-28-mcp-tool-description-poisoning-openai.md) |
-| 2026-05-04 | Indirect prompt injection via filesystem content read by `@modelcontextprotocol/server-filesystem`-using agents | **Gemini 2.5 Flash 75%, Grok 4.1 Fast Reasoning 75%** silent compliance on all 3 disguise variants (incl. SSH-key + `.env` reads); Haiku 4.5 25% (slips on HTML-comment disguise only); Opus 4.7 0% | [findings/2026-05-04-server-filesystem-indirect-injection.md](findings/2026-05-04-server-filesystem-indirect-injection.md) |
+| 2026-05-04 | Indirect prompt injection via filesystem content read by `@modelcontextprotocol/server-filesystem`-using agents | **4 of 6 frontier models comply at 75%** on all 3 disguise variants (GPT-4o, GPT-4o-mini, Gemini 2.5 Flash, Grok 4.1 Fast Reasoning — incl. SSH-key + `.env` reads); Haiku 4.5 25% (slips on HTML-comment disguise only); Opus 4.7 0% (defends articulately) | [findings/2026-05-04-server-filesystem-indirect-injection.md](findings/2026-05-04-server-filesystem-indirect-injection.md) |
+
+Drafted disclosure submissions in [`disclosures/`](disclosures/) —
+one per affected provider (OpenAI, Google, xAI, Anthropic), each a
+copy-pasteable submission body for the respective bounty / safety
+channel.
 
 To run the server-filesystem probe sweep against the 4-model panel:
 
