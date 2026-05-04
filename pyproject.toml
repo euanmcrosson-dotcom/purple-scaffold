@@ -16,6 +16,15 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Optional: install with `pip install -e .[product]` to enable the
+# LLM-API proxy (purple/proxy.py) used for testing deployed agent
+# products (Cursor, Cline, Claude Desktop, Continue.dev). Pulls in
+# mitmproxy for HTTPS interception and litellm for the panel-replay
+# path.
+product = [
+    "mitmproxy>=11.0",
+    "litellm>=1.0",
+]
 
 [tool.setuptools]
 packages = ["purple"]

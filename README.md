@@ -29,6 +29,37 @@ one per affected provider (OpenAI, Google, xAI, Anthropic), each a
 copy-pasteable submission body for the respective bounty / safety
 channel.
 
+## Deployed-product testing (LLM-API proxy)
+
+The harness can also be pointed at deployed agent products (Cursor,
+Cline, Claude Desktop, Continue.dev) via an HTTPS proxy that
+intercepts their outbound calls to LLM provider APIs and records
+(prompt, tools, response) tuples to JSONL.
+
+```powershell
+pip install -e .[product]   # adds mitmproxy + litellm
+
+# Smoke test — drives a single litellm call through the proxy and
+# verifies capture + replay parity with the in-process runner.
+python -m examples.demo_proxy_lab
+
+# Once validated against the smoke target, point a real product at
+# the proxy and capture its real LLM traffic:
+mitmdump -s purple/proxy.py --set capture_path=runs/proxy/cursor.jsonl
+# … set HTTPS_PROXY=http://127.0.0.1:8080 in the product, drive it as
+# a user, then replay the captures:
+python -m purple.proxy_replay runs/proxy/cursor.jsonl --mode passive
+# Or replay against the full 6-model panel to demonstrate "the
+# product's prompt formulation produces compliance on the underlying
+# model":
+python -m purple.proxy_replay runs/proxy/cursor.jsonl --mode panel
+```
+
+The proxy redacts API keys from captured headers and from any
+key-pattern match in serialised bodies. See
+[`purple/proxy.py`](purple/proxy.py) and
+[`purple/proxy_replay.py`](purple/proxy_replay.py).
+
 To run the server-filesystem probe sweep against the 4-model panel:
 
 ```powershell
