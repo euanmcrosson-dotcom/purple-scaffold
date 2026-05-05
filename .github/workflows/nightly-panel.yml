@@ -54,7 +54,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,product]"
           pip install mcp-server-fetch mcp-server-git mcp-server-sqlite
-          npm install -g @modelcontextprotocol/server-filesystem
+          npm install -g @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-puppeteer
 
       - name: Verify API key is present (skip silently if not)
         id: keys
@@ -134,6 +134,24 @@ jobs:
             --scenarios all --max-turns 6 \
             --out "runs/sqlite/nightly-$(date -u +%Y-%m-%d).jsonl"
 
+      - name: Run puppeteer probe (Chromium downloads on first run)
+        if: steps.keys.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p runs/puppeteer
+          python lab/vulnerable_fetch_targets.py &
+          TARGET_PID=$!
+          sleep 2
+          set +e
+          python -m examples.demo_mcp_puppeteer_target \
+            --models "anthropic/claude-haiku-4-5-20251001" \
+            --scenarios all --max-turns 8 \
+            --out "runs/puppeteer/nightly-$(date -u +%Y-%m-%d).jsonl"
+          PROBE_RC=$?
+          kill $TARGET_PID 2>/dev/null || true
+          exit $PROBE_RC
+
       - name: Generate LEADERBOARD.md
         if: steps.keys.outputs.skip != 'true'
         run: |
@@ -149,7 +167,8 @@ jobs:
             "runs/products/nightly-${DATE}.jsonl" \
             "runs/fetch/nightly-${DATE}.jsonl" \
             "runs/git/nightly-${DATE}.jsonl" \
-            "runs/sqlite/nightly-${DATE}.jsonl"; do
+            "runs/sqlite/nightly-${DATE}.jsonl" \
+            "runs/puppeteer/nightly-${DATE}.jsonl"; do
             if [ -f "$f" ]; then cat "$f" >> "$ARCHIVE"; fi
           done
 
@@ -177,4 +196,5 @@ jobs:
             runs/fetch/nightly-*.jsonl
             runs/git/nightly-*.jsonl
             runs/sqlite/nightly-*.jsonl
+            runs/puppeteer/nightly-*.jsonl
           retention-days: 30
